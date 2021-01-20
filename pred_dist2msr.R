@@ -17,18 +17,17 @@ library(psych)
 setwd("Documents/BookClub/BC2Clean")
 
 #grep -v NM predict_ires2_6b.txt > predict_ires2_6b_m.txt
-fname <- "predict_in_6bmsr1_m.txt"
+fname <- "predict_in_6bmsr4_m.txt"
 m_test <- read.delim(fname, sep = "", header = T, na.strings = " ", fill = T)
+
+#egrep "S1HD1|S1MK2|S1MK3|S7MK2|S7FM1|S10MK2|S10MK3|S10MK4|S14HD1|S20MK1|S21MK1" predict_ir_6bmsr4.txt > predict_ir_6bmsr4_mp.txt
+fname <- "predict_an_6bmsr4_mp.txt"
+m_test <- read.delim(fname, sep = "", header = F, na.strings = " ", fill = T)
 mr <- nrow(m_test)
-#for (i in 1:mr){
-#  m_test[i,28:49] <- sort(m_test[i,7:27], decreasing = T)
-#}
+
 t2 <- m_test[,1:7]
-#t2[,4] <- m_test[,6]
 t2[,8] <- FALSE
-#t2[,6:8] <- m_test[,28:30]
-#t2[,9] <- "Y"
-#t2[,10] <- m_test[,4]
+
 names(t2) <- c("Correct_class", "Score", "Guess_class", "TrustedVote", "VoteScore", "TrustedScore","File", "Flag")
 for (i in 1:mr){
   if( t2$Correct_class[i] == t2$Guess_class[i] ){

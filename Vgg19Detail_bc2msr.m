@@ -11,7 +11,7 @@ dataFolderSfx = '1072x712';
 
 
 % Create imageDataset of all images in selected baseline folders
-[baseSet, dataSetFolder] = createBCbaselineIDS6b(dataFolderTmpl, dataFolderSfx, @readFunctionTrain_n);
+[baseSet, dataSetFolder] = createBCbaselineIDS6b(dataFolderTmpl, dataFolderSfx, @readFunctionTrainGN_n);
 trainingSet = baseSet;
 
 % Count number of the classes ('stable' - presrvation of the order - to use
@@ -29,11 +29,12 @@ countEachLabel(trainingSet)
 %% Swarm of models
 nModels = 16;
 myNets = [];
-save_net_fileT = '~/data/an_swarm';
-save_snet_fileT = '~/data/an_swarm_sv';
+save_net_fileT = '~/data/vgg_swarm';
+%save_s1net_fileT = '~/data/vgg_swarm1_sv';
+save_s2net_fileT = '~/data/vgg_swarm2_sv';
 
 for s=1:nModels
-    n_ll = 25;
+    n_ll = 47;
     % Load saved model if exists
     save_net_file = strcat(save_net_fileT, int2str(s), '.mat');
     if isfile(save_net_file)
@@ -43,19 +44,17 @@ for s=1:nModels
     if exist('myNet') == 0
         % Load Pre-trained Network (AlexNet)   
         % AlexNet is a pre-trained network trained on 1000 object categories. 
-        alex = alexnet;
+        %alex = alexnet;
+        vgg = vgg19;
 
-        % Review Network Architecture 
-        layers = alex.Layers;
+        %% Review Network Architecture 
+        layers = vgg.Layers;
 
-        % Modify Pre-trained Network 
+        %% Modify Pre-trained Network 
         % AlexNet was trained to recognize 1000 classes, we need to modify it to
         % recognize just nClasses classes. 
-        %n_ll = 25;
         n_sml = n_ll - 2;
-        layers(n_sml) = fullyConnectedLayer(nClasses); %,... 
-            %'WeightsInitializer', 'narrow-normal',... 
-            %'BiasInitializer', 'narrow-normal');
+        layers(n_sml) = fullyConnectedLayer(nClasses); % change this based on # of classes
         layers(n_ll) = classificationLayer;
 
         % Perform Transfer Learning
@@ -68,8 +67,8 @@ for s=1:nModels
                        'LearnRateSchedule', 'piecewise',...
                        'LearnRateDropPeriod', 5,...
                        'LearnRateDropFactor', 0.9,...
-                       'MiniBatchSize', 128,...
-                       'MaxEpochs', 20); %40
+                       'MiniBatchSize', 32,...
+                       'MaxEpochs', 20);
                    
                       %'Shuffle', 'every-epoch',... 
                       %'Plots', 'training-progress',...
@@ -95,13 +94,12 @@ for s=1:nModels
     
     clear('myNet');
     clear('trainingSetS');
-    clear('layers');
-    clear('alex');
+    clear('lgraph');
+    clear('vgg');
     
 end
 
 %% Mem cleanup
-ngpu = gpuDeviceCount();
 for i=1:ngpu
     reset(gpuDevice(i));
 end
@@ -131,7 +129,7 @@ end
 
 %% Reliability training datasets
 % Create imageDataset vector of images in selected makeup folders
-[testRSets, testRDataSetFolders] = createBCtestIDSvect6b1(dataFolderTmpl, dataFolderSfx, @readFunctionTrain_n);
+[testRSets, testRDataSetFolders] = createBCtestIDSvect6b1(dataFolderTmpl, dataFolderSfx, @readFunctionTrainGN_n);
 
 
 %% Create Matrix of Softmax Activations
@@ -147,31 +145,43 @@ Act = zeros([nImgsTot nClasses nModels]);
 Verd = zeros([nImgsTot nModels]);
 Strong = zeros([nImgsTot nModels]);
 
+Act2 = zeros([nImgsTot nModels]);
+
 ActS = zeros([nImgsTot nClasses*nModels]);
 VerdS = zeros([nImgsTot 1]);
+
+
 
 %% Populate Matrix of Softmax Activations
 nImgsCur = 1;
 for i=1:nMakeups   
     [nImages, ~] = size(testRSets{i}.Files);
     
-    fprintf('Makeup # %d/%d\n', i, nMakeups);
+    fprintf('Makeup # %d/%d\n', i, nMakeups);    
             
     %% Walk through model Swarm
     ActPF = zeros([nImages nClasses nModels]);
     VerdPF = zeros([nImages nModels]);
-    parfor s=1:nModels 
+    %par
+    for s=1:nModels    
+        
+        if mod(s, 2) == 0
+            for j=1:ngpu
+                reset(gpuDevice(j));
+            end
+        end
         
         predictedLabels = classify(myNets(s), testRSets{i}); 
-        predictedScores = predict(myNets(s), testRSets{i});
+        predictedScores = predict(myNets(s), testRSets{i}); 
         ActPF(:, :, s) = predictedScores;
         VerdPF(:, s) = (testRSets{i}.Labels == predictedLabels);
+        
         %Act(nImgsCur:nImgsCur + nImages - 1, :, s) = predictedScores;        
         %Verd(nImgsCur:nImgsCur + nImages - 1, s) = (testRSets{i}.Labels == predictedLabels);
     end
     Act(nImgsCur:nImgsCur + nImages - 1, :, :) = ActPF(:, :, :);        
     Verd(nImgsCur:nImgsCur + nImages - 1, :) = VerdPF(:, :);
-    
+        
     nImgsCur = nImgsCur + nImages;
     
 end
@@ -179,8 +189,76 @@ end
 %% Sorted activations of model candidates
 [ActC, I] = sort(Act, 2, 'descend');
 
-% Collect the strongest softmax of models and flatten ensamble verdict vector
+
+%% Train Supervisor models of the first level
+%mySuper1Nets = [];
+%for s=1:nModels
+    
+%    save_s1net_file = strcat(save_s1net_fileT, int2str(s), '-', int2str(nModels), '.mat');
+%    if isfile(save_s1net_file)
+%        load(save_s1net_file, 'super1Net');
+%    else
+%        clear('super1Net');
+%    end
+
+%    if exist('super1Net') == 0
+
+%        nVerdicts = 2;
+%        nLayer1 = nClasses*nModels;
+%        nLayer2 = nClasses*nModels;
+%        nLayer3 = nClasses*nModels;
+
+%        sLayers = [
+%            featureInputLayer(nClasses)
+%            fullyConnectedLayer(nLayer1)
+%            reluLayer
+            %dropoutLayer(0.5)
+%            fullyConnectedLayer(nLayer2)
+            %tanhLayer
+%            reluLayer
+            %dropoutLayer(0.5)
+%            fullyConnectedLayer(nLayer3)
+%            reluLayer
+            %dropoutLayer(0.5)
+%            fullyConnectedLayer(nVerdicts)
+%            softmaxLayer
+%            classificationLayer
+%        ];
+
+%        sOptions = trainingOptions('adam', ...
+%            'ExecutionEnvironment','parallel',...
+%            'LearnRateSchedule', 'piecewise',...
+%            'LearnRateDropPeriod', 5,...
+%            'LearnRateDropFactor', 0.9,...
+%            'Shuffle', 'every-epoch',...
+%            'MiniBatchSize', 64, ...
+%            'InitialLearnRate',0.01, ...
+%            'MaxEpochs',200, ...
+%            'Verbose',true); %, ...
+            %'Plots','training-progress');
+    
+            %'Shuffle', 'every-epoch',...
+            
+%        Yt = categorical(Verd(:, s)');
+
+%        super1Net = trainNetwork(ActC(:, :, s), Yt, sLayers, sOptions);
+        
+%        super2Scores = predict(super1Net, ActC(:, :, s));
+%        Act2(:, s) = super2Scores(:, 2);
+
+        %save(save_s1net_file, 'super1Net');
+%    end
+    
+%    mySuper1Nets = [mySuper1Nets, super1Net];
+%    clear('super1Net');
+
+%end
+
+%[LikelyC, ILikely] = sort(Act2, 2, 'descend');
+
+%% Collect the strongest softmax of models and flatten ensamble verdict vector
 % (Another place to add supervisor to rank models based of its core)
+%Strong(:, :) = mean(ActC(:, :, :), 2);
 Strong(:, :) = ActC(:, 1, :);
 
 
@@ -193,34 +271,34 @@ for k=1:nImgsTot
     for si=1:nModels
         
         s = IStrong(k, si);
-        if si == 1            
+        if si == 1
+            
             if Verd(k, s) > 0
                 VerdS(k) = sum(Verd(k, :), 2);
+                %VerdS(k) = Verd(k, s); 
             end
         end
         
         ActS(k, nClasses*(si-1)+1:nClasses*si) = Act(k, I(k, :, IStrong(k, 1)), s);
         
     end
-    
 end
 
-%VerdS = sum(Verd, 2);
 
-ngpu = gpuDeviceCount();
+%
 for i=1:ngpu
     reset(gpuDevice(i));
 end
 
 %% Train Supervisor model
-save_snet_file = strcat(save_snet_fileT, int2str(nModels), '.mat');
-if isfile(save_snet_file)
-    load(save_snet_file, 'superNet');
+save_s2net_file = strcat(save_s2net_fileT, int2str(nModels), '.mat');
+if isfile(save_s2net_file)
+    load(save_s2net_file, 'super2Net');
 else
-    clear('superNet');
+    clear('super2Net');
 end
 
-if exist('superNet') == 0
+if exist('super2Net') == 0
     
     Yt = categorical(VerdS');
     [~, nVerdicts] =  size(countcats(Yt));
@@ -259,11 +337,11 @@ if exist('superNet') == 0
     
         %'Shuffle', 'every-epoch',...
             
-    Yt = categorical(VerdS');
+    %Yt = categorical(VerdS');
 
-    superNet = trainNetwork(ActS, Yt, sLayers, sOptions);
+    super2Net = trainNetwork(ActS, Yt, sLayers, sOptions);
 
-    %save(save_snet_file, 'superNet');
+    %save(save_s2net_file, 'super2Net');
 
 end
 
@@ -272,7 +350,7 @@ mkDataSetFolder = strings(0);
 mkLabel = strings(0);
 
 % Create imageDataset vector of images in selected makeup folders
-[testSets, testDataSetFolders] = createBCtestIDSvect6b(dataFolderTmpl, dataFolderSfx, @readFunctionTrain_n);
+[testSets, testDataSetFolders] = createBCtestIDSvect6b(dataFolderTmpl, dataFolderSfx, @readFunctionTrainGN_n);
 
 
 %%
@@ -283,7 +361,7 @@ mkTable = cell(nMakeups, nClasses+4);
 %%
 
 % Write per-image scores to a file
-fd = fopen( strcat('predict_an_6bmsr',int2str(nModels),'.txt'),'w' );
+fd = fopen( strcat('predict_vgg_6bmsr',int2str(nModels),'.txt'),'w' );
 
 fprintf(fd, "CorrectClass MaxScore MaxScoreClass TrustedVote VoteScore TrustedScore FileName");
 for l=1:nClasses
@@ -291,8 +369,10 @@ for l=1:nClasses
 end
 fprintf(fd, "\n");
 
-
-
+%
+for i=1:ngpu
+    reset(gpuDevice(i));
+end
 
 %% Create Matrix of Softmax Activations
 [nMakeups, ~] = size(testSets);
@@ -305,8 +385,8 @@ end
 
 ActT = zeros([nImgsTot nClasses nModels]);
 StrongT = zeros([nImgsTot nModels]);
-
 ActTS = zeros([nImgsTot nClasses*nModels]);
+
 
 %% Populate Matrix of Softmax Activations
 predictedLabelsSwarm = cell(nMakeups, nModels);
@@ -314,12 +394,20 @@ predictedScoresSwarm = cell(nMakeups, nModels);
 nImgsCur = 1;
 for i=1:nMakeups   
     [nImages, ~] = size(testSets{i}.Files);
-        
+    
     fprintf('Makeup # %d/%d\n', i, nMakeups);
             
     %% Walk through model Swarm
     ActTPF = zeros([nImages nClasses nModels]);
-    parfor s=1:nModels 
+    %par
+    for s=1:nModels 
+        
+        if mod(s, 1) == 0
+            for j=1:ngpu
+                reset(gpuDevice(j));
+            end
+        end
+        
         % Test main network performance
         predictedLabels = classify(myNets(s), testSets{i});
         predictedLabelsSwarm{i, s} = predictedLabels;
@@ -328,19 +416,28 @@ for i=1:nMakeups
         
         ActTPF(:, :, s) = predictedScores;
         %ActT(nImgsCur:nImgsCur + nImages - 1, :, s) = predictedScores;        
-    end
-    ActT(nImgsCur:nImgsCur + nImages - 1, :, :) = ActTPF(:, :, :);
         
+    end
+    ActT(nImgsCur:nImgsCur + nImages - 1, :, :) = ActTPF(:, :, :);        
+    
     nImgsCur = nImgsCur + nImages;
 end
 
 %% Sorted activations of model candidates
 [ActTC, IT] = sort(ActT, 2, 'descend');
 
+%for s=1:nModels
+%    super2Scores = predict(mySuper1Nets(s), ActTC(:, :, s));
+%    Act2T(:, s) = super2Scores(:, 2);
+%end        
+
+%[LikelyTC, ILikelyT] = sort(Act2T, 2, 'descend');
+
+
 % Collect the strongest softmax of models and flatten ensamble verdict vector
 % (Another place to add supervisor to rank models based of its core)
+%StrongT(:, :) = mean(ActTC(:, :, :), 2);
 StrongT(:, :) = ActTC(:, 1, :);
-
 
 %% Sort other models by their strongest softmax 
 [StrongTC, IStrongT] = sort(StrongT, 2, 'descend');
@@ -360,12 +457,11 @@ end
    
 %%
 % Supervisor network
-supervisorPredictedLabels = classify(superNet, ActTS); 
-supervisorPredictedScores = predict(superNet, ActTS);
-    
+supervisorPredictedLabels = classify(super2Net, ActTS); 
+supervisorPredictedScores = predict(super2Net, ActTS);
+
 nImgsCur = 0;
- for i=1:nMakeups
-    %[nImages, ~] = size(testSets{i}.Files); 
+for i=1:nMakeups 
     clear('predictedScoresS');
     clear('predictedLabelsS');
     
@@ -373,12 +469,12 @@ nImgsCur = 0;
         predictedScoresS(:, :, s) = predictedScoresSwarm{i, s};
         predictedLabelsS(:, s) = predictedLabelsSwarm{i, s};
     end
+    % Ensemble voting
     [~, MI] = max(countcats(predictedLabelsS, 2), [], 2);
     predictedLabelsCat = (categories(predictedLabelsS));
     predictedLabels = predictedLabelsCat(MI);
     
     predictedScores = mean(predictedScoresS, 3);
-    
         
     [nImages, ~] = size(testSets{i}.Files);
     for k=1:nImages
@@ -395,11 +491,10 @@ nImgsCur = 0;
             end
         end
     
-        fprintf(fd, "%s %f %s %f %f %f %s", correctClass, maxScore, maxScoreClass,... 
+        fprintf(fd, "%s %f %s %f %f %f %s", correctClass, maxScore, maxScoreClass,...
             double(string(supervisorPredictedLabels(nImgsCur+k)))/nVerdicts,...
             max(supervisorPredictedScores(nImgsCur+k, :)),...
             1.-supervisorPredictedScores(nImgsCur+k,1), testSets{i}.Files{k});
-
         for l=1:nClasses
             fprintf(fd, " %f", predictedScores(k, l));
         end
