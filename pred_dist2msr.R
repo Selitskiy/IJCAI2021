@@ -1,30 +1,30 @@
 install.packages("ggplot2")
 install.packages("readtext")
 install.packages("psych")
-#install.packages("car")
-#install.packages("ggpubr")
-#install.packages("dgof")
-#install.packages("kSamples")
+
 
 library(readtext)
 library(ggplot2)
 library(psych)
-#library(car)
-#library(ggpubr)
-#library(dgof)
-#library(kSamples)
 
+# Set working directory
 setwd("Documents/BookClub/BC2Clean")
 
-#grep -v NM predict_ires2_6b.txt > predict_ires2_6b_m.txt
+#EITHER
+# Parse makeup only sessions and load
+#grep -v NM predict_ir_6bmsr4.txt > predict_ir_6bmsr4_m.txt
 fname <- "predict_in_6bmsr4_m.txt"
 m_test <- read.delim(fname, sep = "", header = T, na.strings = " ", fill = T)
+mr <- nrow(m_test)
 
+#OR
+# Parse 'difficult' sessions and load
 #egrep "S1HD1|S1MK2|S1MK3|S7MK2|S7FM1|S10MK2|S10MK3|S10MK4|S14HD1|S20MK1|S21MK1" predict_ir_6bmsr4.txt > predict_ir_6bmsr4_mp.txt
 fname <- "predict_an_6bmsr4_mp.txt"
 m_test <- read.delim(fname, sep = "", header = F, na.strings = " ", fill = T)
 mr <- nrow(m_test)
 
+#Process
 t2 <- m_test[,1:7]
 t2[,8] <- FALSE
 
@@ -38,7 +38,7 @@ for (i in 1:mr){
 t2r <- t2[t2$Flag == TRUE,]
 t2w <- t2[t2$Flag != TRUE,]
 
-
+# Set up thresholds
 TVt = 0.5
 VSt = 0.95
 

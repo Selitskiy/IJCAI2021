@@ -13,9 +13,17 @@ for i=1:ngpu
     OMem1 = OMem1 + Mem1(i);
 end
 
+
+%% CONFIGURATION PARAMETERS:
+% Download BookClub dataset from: https://data.mendeley.com/datasets/yfx9h649wz/2
+% and unarchive it into the dierctory below:
 %% Dataset root folder template and suffix
 dataFolderTmpl = '~/data/BC2_Sfx';
 dataFolderSfx = '1072x712';
+%Set number of models in the ensemble: 1, 2, 4, 8, 16
+nModels = 1;
+%Set directory and template for the retrained CNN models:
+save_net_fileT = '~/data/in_swarm';
 
 
 % Create imageDataset of all images in selected baseline folders
@@ -38,9 +46,7 @@ t1 = clock();
 %[trainingSet, testSet] = splitEachLabel(baseSet, 0.4, 'randomize'); 
 
 %% Swarm of models
-nModels = 16;
 myNets = [];
-save_net_fileT = '~/data/in_swarm';
 %save_s1net_fileT = '~/data/in_swarm1_sv';
 save_s2net_fileT = '~/data/in_swarm2_sv';
 
@@ -436,7 +442,8 @@ nImgsCur = 1;
 for i=1:nMakeups   
     [nImages, ~] = size(testSets{i}.Files);
     
-    fprintf('Makeup # %d/%d\n', i, nMakeups);
+    t11 = clock();
+    fprintf('Makeup # %d/%d, images %d...', i, nMakeups, nImages);
             
     %% Walk through model Swarm
     ActTPF = zeros([nImages nClasses nModels]);
@@ -452,6 +459,9 @@ for i=1:nMakeups
         
     end
     ActT(nImgsCur:nImgsCur + nImages - 1, :, :) = ActTPF(:, :, :);
+    
+    t12 = clock();
+    fprintf('test time %.3f\n', etime(t12, t11));
     
     nImgsCur = nImgsCur + nImages;
 end
